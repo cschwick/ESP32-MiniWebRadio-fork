@@ -7,18 +7,18 @@
 #define _SSID               "mySSID"                        // Your WiFi credentials here
 #define _PW                 "myWiFiPassword"                // Or in textfile on SD-card
 #define DECODER             1                               // (1)MAX98357A PCM5102A CS4344... (2)AC101, (3)ES8388, (4)WM8978
-#define TFT_CONTROLLER      5                               // (0)ILI9341, (1)HX8347D, (2)ILI9486a, (3)ILI9486b, (4)ILI9488, (5)ST7796, (6)ST7796RPI
+#define TFT_CONTROLLER      0                               // (0)ILI9341, (1)HX8347D, (2)ILI9486a, (3)ILI9486b, (4)ILI9488, (5)ST7796, (6)ST7796RPI
 #define DISPLAY_INVERSION   0                               // (0) off (1) on
-#define TFT_ROTATION        1                               // 1 or 3 (landscape)
+#define TFT_ROTATION        3                               // 1 or 3 (landscape)
 #define TFT_FREQUENCY       40000000                        // 80000000, 40000000, 27000000, 20000000, 10000000
-#define TP_VERSION          5                               // (0)ILI9341, (1)ILI9341RPI, (2)HX8347D, (3)ILI9486, (4)ILI9488, (5)ST7796, (3)ST7796RPI
+#define TP_VERSION          0                               // (0)ILI9341, (1)ILI9341RPI, (2)HX8347D, (3)ILI9486, (4)ILI9488, (5)ST7796, (3)ST7796RPI
 #define TP_ROTATION         1                               // 1 or 3 (landscape)
 #define TP_H_MIRROR         0                               // (0) default, (1) mirror up <-> down
-#define TP_V_MIRROR         0                               // (0) default, (1) mittor left <-> right
+#define TP_V_MIRROR         1                               // (0) default, (1) mittor left <-> right
 #define AUDIOTASK_CORE      0                               // 0 or 1
 #define AUDIOTASK_PRIO      2                               // 0 ... 24  Priority of the Task (0...configMAX_PRIORITIES -1)
 #define I2S_COMM_FMT        0                               // (0) MAX98357A PCM5102A CS4344, (1) LSBJ (Least Significant Bit Justified format) PT8211
-#define SDMMC_FREQUENCY     80000000                        // 80000000 or 40000000 MHz
+#define SDMMC_FREQUENCY     20000000                        // 80000000 or 40000000 MHz
 #define FTP_USERNAME        "esp32"                         // user and pw in FTP Client
 #define FTP_PASSWORD        "esp32"
 #define CONN_TIMEOUT        1000                             // unencrypted connection timeout in ms (http://...)
@@ -114,11 +114,11 @@
         #define HP_DETECT          -1
         #define AMP_ENABLED        -1
 
-        #define BT_EMITTER_RX      45  // TX pin - KCX Bluetooth Transmitter    (-1 if not available)
-        #define BT_EMITTER_TX      38  // RX pin - KCX Bluetooth Transmitter    (-1 if not available)
-        #define BT_EMITTER_LINK    19  // high if connected                     (-1 if not available)
-        #define BT_EMITTER_MODE    20  // high transmit - low receive           (-1 if not available)
-        #define BT_EMITTER_CONNECT 48  // high impulse -> awake after POWER_OFF (-1 if not available)
+        #define BT_EMITTER_RX      -1 // 45  // TX pin - KCX Bluetooth Transmitter    (-1 if not available)
+        #define BT_EMITTER_TX      -1 // 38  // RX pin - KCX Bluetooth Transmitter    (-1 if not available)
+        #define BT_EMITTER_LINK    -1 // 19  // high if connected                     (-1 if not available)
+        #define BT_EMITTER_MODE    -1 // 20  // high transmit - low receive           (-1 if not available)
+        #define BT_EMITTER_CONNECT -1 // 48  // high impulse -> awake after POWER_OFF (-1 if not available)
 
 #endif
 
@@ -145,6 +145,7 @@
 static bool _newLine = false;
 extern SemaphoreHandle_t mutex_rtc;
 extern RTIME rtc;
+extern bool _f_dlnaMakePlaylistOTF; // for communication with the callback of the dlna browsing completion
 #define SerialPrintfln(...) {xSemaphoreTake(mutex_rtc, portMAX_DELAY); \
  /* line feed */            if(_newLine){_newLine = false; Serial.println("");} \
                             Serial.printf("%s ", rtc.gettime_s()); \
@@ -1774,7 +1775,6 @@ public:
         m_itemListPos = (y / (m_h / 10));
         if(m_itemListPos < 2 || m_itemListPos > 11) goto exit; // oor, is header, footer or return item
         m_itemListPos -= 2;
-
         if(*m_dlnaLevel == 0){
             if( m_dlnaServer.friendlyName.size() > m_itemListPos) maybe_a_server = true;
         }
@@ -1789,7 +1789,7 @@ public:
         }
 
         if(maybe_a_file){
-            if(startsWith(m_srvContent.itemURL[m_itemListPos - 1], "http")){
+            if(startsWith(m_srvContent.itemURL[m_itemListPos], "http")){
                 log_i("long pressed at file %s", m_srvContent.itemURL[m_itemListPos]);
                 goto exit;
             }
@@ -1797,6 +1797,19 @@ public:
 
         if(maybe_a_folder){
             log_i("long pressed at folder x %s",m_srvContent.title[m_itemListPos]);
+            // long pressed the folder: browse the contents of the folder and notify
+            // the main.cpp that the browsing should be used for building and playing
+            // an on the fly playlist. This requires an ugly global variable since 
+            // there are no other means to communicate this to the main.cpp (the callback
+            // for the notification of the browsing result does not contain any context
+            // parameter.)
+            _f_dlnaMakePlaylistOTF = true;
+            //uint8_t err = m_dlna->browseServer(m_currDLNAsrvNr, m_dlnaHistory[*m_dlnaLevel].objId, 0 , 50);
+            uint8_t err = m_dlna->browseServer(m_currDLNAsrvNr, m_srvContent.objectId[m_itemListPos], 0 , 50);
+               if (err != 0 ) {
+                log_e("Could not browse sub-folder of dlna server: %d", err);
+            }
+
             goto exit;
         }
 

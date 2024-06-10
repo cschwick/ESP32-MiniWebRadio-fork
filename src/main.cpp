@@ -165,6 +165,7 @@ bool                _f_shuffle = false;
 bool                _f_dlnaBrowseServer = false;
 bool                _f_dlnaWaitForResponse = false;
 bool                _f_dlnaSeekServer = false;
+bool                _f_dlnaMakePlaylistOTF; // notify callback that this browsing was to build a On-The_fly playlist
 bool                _f_BtEmitterFound = false;
 bool                _f_BTEmitterConnected = false;
 bool                _f_brightnessIsChangeable = false;
@@ -1081,6 +1082,33 @@ bool preparePlaylistFromFile(const char* path) {
     return true;
 }
 //____________________________________________________________________________________________________________________________________________________
+bool preparePlaylistFromDLNAFolder( ){
+    vector_clear_and_shrink(_PLS_content); // clear _PLS_content first
+    DLNA_Client::srvContent_t foldercontent = dlna.getBrowseResult();
+    // Now we need to create a playlist on the fly and play the stuff
+    for ( int i=0; i<foldercontent.size; i++) {
+        log_i( "%d : (%d) %s %s -- %s",i, foldercontent.isAudio[i],
+            foldercontent.itemURL[i], foldercontent.title[i], 
+            foldercontent.duration[i]);
+        uint16_t len = strlen((const char*)foldercontent.itemURL[i]) + 
+                    strlen((const char*)foldercontent.title[i]) +
+                    strlen((const char*)foldercontent.duration[i]) + 3; 
+        log_i("malloc with size %d %d %d %d",len,
+        strlen((const char*)foldercontent.itemURL[i]),
+        strlen((const char*)foldercontent.title[i]),
+        strlen((const char*)foldercontent.duration[i]));    
+        char* itstr = x_ps_malloc( len );
+        strcpy( itstr, (const char*)foldercontent.itemURL[i]);
+        strcat( itstr, "\n");
+        strcat( itstr, (const char*)foldercontent.duration[i]);
+        strcat( itstr, ",");
+        strcat( itstr, (const char*)foldercontent.title[i]);
+        log_i("pushing to playlist : %s",itstr);
+        _PLS_content.push_back(itstr);
+        //_PLS_content.push_back(x_ps_strdup((const char*)foldercontent.itemURL[i]));
+    }
+    return true;
+ }
 
 bool preparePlaylistFromFolder(const char* path) { // all files whithin a folder
     if(!SD_MMC.exists(path)) {
@@ -3416,8 +3444,17 @@ void dlna_browseReady(uint16_t numberReturned, uint16_t totalMatches) {
     }
     if(_f_dlnaWaitForResponse) {
         _f_dlnaWaitForResponse = false;
-        lst_DLNA.show(_dlnaItemNr, dlna.getServer(), dlna.getBrowseResult(), &_dlnaLevel, _dlnaMaxItems);
-        setTimeCounter(4);
+        if (_f_dlnaMakePlaylistOTF) {
+            _f_dlnaMakePlaylistOTF = false;
+            log_i("Make dlna playlist on the fly");
+            preparePlaylistFromDLNAFolder();
+            processPlaylist( true );
+        } else {
+            lst_DLNA.show(_dlnaItemNr, dlna.getServer(), dlna.getBrowseResult(), &_dlnaLevel, _dlnaMaxItems);
+            setTimeCounter(4);
+         }
+//        lst_DLNA.show(_dlnaItemNr, dlna.getServer(), dlna.getBrowseResult(), &_dlnaLevel, _dlnaMaxItems);
+//        setTimeCounter(4);
     }
     else { webSrv.send("dlnaContent=", dlna.stringifyContent()); }
 }
